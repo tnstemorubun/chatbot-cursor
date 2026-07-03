@@ -10,4 +10,12 @@ cp .env.example .env   # isi CURSOR_API_KEY
 npm start
 ```
 
-Buka http://localhost:3000
+## Cloud Agent + GitHub Sync
+
+Cloud Agent otomatis terhubung ke repo GitHub lewat `GITHUB_REPO_URL`.
+Setelah agent selesai (`FINISHED`) dan push perubahan, server menjalankan `git pull` agar kode lokal tetap sinkron.
+
+Pastikan:
+1. GitHub sudah terhubung di [Cursor Dashboard → Integrations](https://cursor.com/dashboard)
+2. Repo `tnstemorubun/chatbot-cursor` sudah di-authorize
+3. `git remote origin` sudah mengarah ke repo yang sama

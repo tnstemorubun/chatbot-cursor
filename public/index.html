@@ -349,6 +349,7 @@
         <div>
           <h1>Cursor AI Chatbot</h1>
           <p id="userInfo">Memuat koneksi API...</p>
+          <p id="repoInfo" style="margin:2px 0 0;font-size:12px;color:var(--muted)"></p>
         </div>
       </div>
       <div class="controls">
@@ -410,6 +411,7 @@
     const statusBar = document.getElementById("statusBar");
     const statusText = document.getElementById("statusText");
     const userInfo = document.getElementById("userInfo");
+    const repoInfo = document.getElementById("repoInfo");
     const newChatBtn = document.getElementById("newChatBtn");
     const modeButtons = document.querySelectorAll(".mode-btn");
 
@@ -477,17 +479,28 @@
 
     async function loadHealth() {
       try {
-        const res = await fetch("/api/health");
-        const data = await res.json();
+        const [healthRes, repoRes] = await Promise.all([
+          fetch("/api/health"),
+          fetch("/api/repo"),
+        ]);
+        const data = await healthRes.json();
+        const repo = await repoRes.json().catch(() => ({}));
 
         if (!data.ok) {
           throw new Error(data.error || "API key tidak valid");
         }
 
         userInfo.textContent = `${data.user.name || "User"} · ${data.user.email}`;
+        if (repo.connected) {
+          const shortRepo = repo.repo.url.replace("https://github.com/", "");
+          repoInfo.textContent = `Repo: ${shortRepo}@${repo.repo.branch} · lokal ${repo.git.head || "-"}`;
+        } else {
+          repoInfo.textContent = "Repo GitHub belum dikonfigurasi";
+        }
         setStatus(`Mode ${MODE_LABELS[currentMode]} · Siap`);
       } catch (error) {
         userInfo.textContent = "Gagal terhubung";
+        repoInfo.textContent = "";
         setStatus(error.message, true);
       }
     }
@@ -561,6 +574,17 @@
 
               if (eventName === "reload") {
                 setTimeout(() => window.location.reload(), 600);
+              }
+
+              if (eventName === "sync") {
+                const note = payload.ok
+                  ? `\n\n🔄 ${payload.message || "Sinkronisasi repo selesai."}`
+                  : `\n\n⚠️ Sinkronisasi gagal: ${payload.error || "unknown"}`;
+                assistantBubble.textContent += note;
+                if (payload.prUrl) {
+                  assistantBubble.textContent += `\nPR: ${payload.prUrl}`;
+                }
+                loadHealth();
               }
 
               if (eventName === "navigate" && payload.url) {

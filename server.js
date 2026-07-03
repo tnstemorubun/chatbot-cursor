@@ -4,6 +4,12 @@ const express = require("express");
 const path = require("path");
 const { tryLocalAgentAction, shouldSkipCursorApi, isLikelyAction } = require("./local-tools");
 const { listWorkspaceTree, WORKSPACE_ROOT } = require("./workspace-agent");
+const {
+  getRepoConfig,
+  buildAgentRepoPayload,
+  getLocalGitStatus,
+  syncFromRemote,
+} = require("./repo-sync");
 
 const MODES = {
   agent: {
@@ -200,6 +206,35 @@ app.get("/api/workspace", async (_req, res) => {
   }
 });
 
+app.get("/api/repo", async (_req, res) => {
+  try {
+    const config = getRepoConfig();
+    const git = await getLocalGitStatus();
+
+    res.json({
+      connected: Boolean(config),
+      repo: config,
+      git,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/repo/sync", async (_req, res) => {
+  try {
+    const config = getRepoConfig();
+    if (!config) {
+      return res.status(400).json({ error: "GITHUB_REPO_URL belum diatur di .env" });
+    }
+
+    const result = await syncFromRemote(config);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   const message = String(req.body.message || "").trim();
   const agentId = req.body.agentId || null;
@@ -258,6 +293,9 @@ app.post("/api/chat", async (req, res) => {
     let currentAgentId = agentId;
     let runId;
     let hasText = false;
+    let runStatus = null;
+    let runGit = null;
+    const repoConfig = getRepoConfig();
 
     if (!currentAgentId) {
       const body = {
@@ -267,6 +305,7 @@ app.post("/api/chat", async (req, res) => {
           id: DEFAULT_MODEL,
           params: [{ id: "fast", value: "true" }],
         },
+        ...buildAgentRepoPayload(repoConfig),
       };
 
       const { response, data } = await cursorFetch(`${CURSOR_API}/v1/agents`, {
@@ -315,7 +354,14 @@ app.post("/api/chat", async (req, res) => {
       runId = data.run?.id;
     }
 
-    sendEvent("meta", { agentId: currentAgentId, runId, mode: modeKey });
+    sendEvent("meta", {
+      agentId: currentAgentId,
+      runId,
+      mode: modeKey,
+      repo: repoConfig
+        ? { url: repoConfig.url, branch: repoConfig.branch }
+        : null,
+    });
 
     await waitForRunReady(currentAgentId, runId);
 
@@ -376,6 +422,14 @@ app.post("/api/chat", async (req, res) => {
           hasText = true;
           sendEvent("delta", { text: payload.text });
         }
+        if (payload.status) runStatus = payload.status;
+        if (payload.git) runGit = payload.git;
+        return;
+      }
+
+      if (eventName === "result") {
+        if (payload.status) runStatus = payload.status;
+        if (payload.git) runGit = payload.git;
         return;
       }
 
@@ -422,6 +476,29 @@ app.post("/api/chat", async (req, res) => {
       if (resultText) {
         sendEvent("delta", { text: resultText });
         hasText = true;
+      }
+    }
+
+    if (!runStatus || !runGit) {
+      const { data: finalRun } = await cursorFetch(
+        `${CURSOR_API}/v1/agents/${currentAgentId}/runs/${runId}`,
+        { headers: cursorHeaders() }
+      );
+      if (finalRun) {
+        runStatus = runStatus || finalRun.status;
+        runGit = runGit || finalRun.git || null;
+      }
+    }
+
+    if (repoConfig && runStatus === "FINISHED") {
+      try {
+        const syncResult = await syncFromRemote(repoConfig, runGit);
+        sendEvent("sync", syncResult);
+        if (syncResult.ok && syncResult.changed) {
+          sendEvent("reload", {});
+        }
+      } catch (syncError) {
+        sendEvent("sync", { ok: false, error: syncError.message });
       }
     }
 

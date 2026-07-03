@@ -286,10 +286,23 @@ function parseDirectCommands(message) {
     return actions;
   }
 
-  const readMatch = text.match(
-    /^(?:baca|read|lihat|tampilkan)\s+(?:file\s+)?(.+?)(?:\s*$)/i
+  if (isListFilesIntent(text)) {
+    actions.push({ tool: "list", path: extractListPath(text) });
+    return actions;
+  }
+
+  const readFileMatch = text.match(
+    /^(?:baca|read|lihat|tampilkan)\s+file\s+(.+)$/i
   );
-  if (readMatch) {
+  if (readFileMatch && !isGenericListPhrase(readFileMatch[1])) {
+    actions.push({ tool: "read", path: readFileMatch[1].trim() });
+    return actions;
+  }
+
+  const readMatch = text.match(
+    /^(?:baca|read|lihat|tampilkan)\s+(.+?)(?:\s*$)/i
+  );
+  if (readMatch && !isGenericListPhrase(readMatch[1])) {
     actions.push({ tool: "read", path: readMatch[1].trim() });
     return actions;
   }
@@ -409,10 +422,32 @@ function resolveTheme(message) {
 }
 
 function isListFilesIntent(message) {
-  const lower = message.toLowerCase();
-  return /(?:ada\s+)?file\s+apa|daftar\s+file|isi\s+folder|file\s+(?:apa|ada)|folder\s+(?:ini|apa|berisi)|tampilkan\s+(?:semua\s+)?file|lihat\s+(?:isi\s+)?(?:folder|direktori)|apa\s+saja\s+(?:file|isi)|mau\s+tahu\s+ada\s+file/i.test(
-    lower
+  const lower = message.toLowerCase().trim();
+
+  if (
+    /^lihat\s+file\s+[\w./-]+$/i.test(lower) ||
+    /^baca\s+file\s+[\w./-]+$/i.test(lower) ||
+    /^tampilkan\s+file\s+[\w./-]+$/i.test(lower)
+  ) {
+    return false;
+  }
+
+  return (
+    /(?:ada\s+)?file\s+apa/.test(lower) ||
+    /daftar\s+file/.test(lower) ||
+    /isi\s+folder/.test(lower) ||
+    /file\s+(?:apa|ada)/.test(lower) ||
+    /folder\s+(?:ini|apa|berisi)/.test(lower) ||
+    /^tampilkan\s+(?:semua\s+)?(?:isi\s+)?file(?:\s+ini)?$/i.test(lower) ||
+    /^lihat\s+(?:semua\s+)?(?:isi\s+)?(?:file|folder|direktori)(?:\s+ini)?$/i.test(lower) ||
+    /apa\s+saja\s+(?:file|isi)/.test(lower) ||
+    /mau\s+tahu\s+ada\s+file/.test(lower) ||
+    /^apa\s+isi\s+file$/i.test(lower)
   );
+}
+
+function isGenericListPhrase(phrase) {
+  return /^(?:isi\s+)?(?:file|folder|direktori)(?:\s+ini)?$/i.test(String(phrase).trim());
 }
 
 function isBackgroundChangeIntent(message) {
@@ -448,9 +483,9 @@ function parseNaturalIntent(message) {
   }
 
   const readNatural = text.match(
-    /(?:baca|lihat|tampilkan|apa\s+isi)\s+(?:file\s+)?["']?([^\s?"']+)["']?/i
+    /(?:baca|lihat|tampilkan)\s+file\s+["']?([^\s?"']+)["']?/i
   );
-  if (readNatural) {
+  if (readNatural && !isGenericListPhrase(readNatural[1])) {
     actions.push({ tool: "read", path: readNatural[1].trim() });
     return actions;
   }
